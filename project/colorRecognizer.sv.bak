@@ -1,0 +1,105 @@
+module colorRecognizer(
+
+	//////////// CLOCK //////////
+	input 		          		CLOCK2_50,
+	input 		          		CLOCK3_50,
+	input 		          		CLOCK4_50,
+	input 		          		CLOCK_50,
+
+	//////////// SDRAM //////////
+	output		    [12:0]		DRAM_ADDR,
+	output		    [1:0]		DRAM_BA,
+	output		          		DRAM_CAS_N,
+	output		          		DRAM_CKE,
+	output		          		DRAM_CLK,
+	output		          		DRAM_CS_N,
+	inout 		    [15:0]		DRAM_DQ,
+	output		          		DRAM_LDQM,
+	output		          		DRAM_RAS_N,
+	output		          		DRAM_UDQM,
+	output		          		DRAM_WE_N,
+	
+	//////////// KEY //////////
+	input 		     [3:0]		KEY,
+
+	//////////// Audio //////////
+	input 		          		AUD_ADCDAT,
+	inout 		          		AUD_ADCLRCK,
+	inout 		          		AUD_BCLK,
+	output		          		AUD_DACDAT,
+	inout 		          		AUD_DACLRCK,
+	output		          		AUD_XCK,
+
+	//////////// I2C for Audio and Video-In //////////
+	output		          		FPGA_I2C_SCLK,
+	inout 		          		FPGA_I2C_SDAT,
+
+	//////////// SEG7 //////////
+	output		     [6:0]		HEX0,
+	output		     [6:0]		HEX1,
+	
+	//////////// LED //////////
+	output		     [9:0]		LEDR,
+
+	//////////// PS2 //////////
+	inout 		          		PS2_CLK,
+	inout 		          		PS2_DAT,
+
+	//////////// SW //////////
+	input 		     [9:0]		SW,
+	
+	//////////// VGA //////////
+	output		          		VGA_BLANK_N,
+	output		     [7:0]		VGA_B,
+	output		          		VGA_CLK,
+	output		     [7:0]		VGA_G,
+	output		          		VGA_HS,
+	output		     [7:0]		VGA_R,
+	output		          		VGA_SYNC_N,
+	output		          		VGA_VS,
+	
+	//////////// GPIO_1, GPIO_1 connect to D8M-GPIO //////////
+	output 		          		CAMERA_I2C_SCL,
+	inout 		          		CAMERA_I2C_SDA,
+	output		          		CAMERA_PWDN_n,
+	output		          		MIPI_CS_n,
+	inout 		          		MIPI_I2C_SCL,
+	inout 		          		MIPI_I2C_SDA,
+	output		          		MIPI_MCLK,
+	input 		          		MIPI_PIXEL_CLK,
+	input 		     [9:0]		MIPI_PIXEL_D,
+	input 		          		MIPI_PIXEL_HS,
+	input 		          		MIPI_PIXEL_VS,
+	output		          		MIPI_REFCLK,
+	output		          		MIPI_RESET_n,
+	
+	//GPIO 
+	output 				[3:0]	GPIO_0
+	);
+	
+	
+	logic [3:0] redCount, greenCount; 
+	logic [12:0] VGA_H_CNT, VGA_V_CNT; 
+
+	//Submodules: 
+	
+	//Audio manager handles the audio output. 
+	//Two tracks are played consecutively:
+		//If (g) pressed on keyboard: (1) sound recording of number corresonding to # of green cards seen (up to 5). (2) "green"
+		//If (r) pressed on keyboard: (2) sound recording of number corresponding to # of red cards seen (up to 5). (2) "red"
+	audioManager audioMan (.redCount, .greenCount, .CLOCK_50, .CLOCK2_50, .reset(~KEY[0]), .FPGA_I2C_SCLK, .FPGA_I2C_SDAT, .AUD_XCK, 
+		        .AUD_DACLRCK, .AUD_ADCLRCK, .AUD_BCLK, .AUD_ADCDAT, .AUD_DACDAT, .PS2_DAT, .PS2_CLK);
+
+	//Color count handles color recognition and maintains the # of times a red or green card has been shown to the camera.
+	colorCounter ccount(.reset(~KEY[0]), .clk(VGA_CLK), .VGA_H_CNT, .VGA_V_CNT, .VGA_R, .VGA_G, .VGA_B, 
+					        .redCount, .greenCount, .redLED(GPIO_0[0]), .greenLED(GPIO_0[3]));
+
+	//Camera driver contains the provided driver files needed to interface with the camera and display the feed via VGA
+	cameraDriver cDriver(.*);
+		
+	//Display red and green counts on seven segment displays. 
+	seg7 hexdisplay0 (.bcd(redCount), .leds(HEX0));
+	seg7 hexdisplay1 (.bcd(greenCount), .leds(HEX1));
+
+
+endmodule 

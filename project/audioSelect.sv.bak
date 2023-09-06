@@ -1,0 +1,113 @@
+module audioSelect( 
+
+
+
+
+);
+
+
+
+
+always_ff @(posedge CLOCK_50) begin
+		if(reset) begin
+			count16khz <= 0;
+			sixteenKhz <= 0; 
+		end else begin
+			if(count16khz < 3125) begin
+				count16khz <= count16khz + 1; 
+				sixteenKhz <= 0; 
+			end else  begin
+				count16khz <= 0;
+				sixteenKhz <= 1; 
+			end
+		end
+	end
+	
+	//index counter
+	always_ff @(posedge CLOCK_50) begin
+		if(reset) begin
+			index <= 0; 
+			sampleDone <= 0; 
+		end else if(indexEn) begin
+			if(index < maxIndexCurrent) begin
+				if(sixteenKhz) begin
+					index <= index + 1; 
+				end
+			end else if (index >= maxIndexCurrent) begin
+				sampleDone <= 1; 
+				index <= 0; 
+			end else if (sampleDoneAck) begin
+				sampleDone <= 0; 
+			end
+		end else begin
+			sampleDone <= 0; 
+		end
+	end
+
+	//track selector 
+	always_ff @(posedge CLOCK_50) begin
+		if(reset) begin
+			CODEC_write <= 24'd0; 
+		end else 
+			case(track) 
+				4'b000: CODEC_write <= zero[index];
+				4'b001: CODEC_write <= one[index];
+				4'b010: CODEC_write <= two[index];
+				4'b011: CODEC_write <= three[index];
+				4'b100: CODEC_write <= four[index];
+				4'b101: CODEC_write <= five[index];
+				4'b110: CODEC_write <= red[index];
+				4'b111: CODEC_write <= green[index];
+				default: CODEC_write <= 24'd0; 
+			endcase
+	end
+
+	//audio controller
+	always_ff @(posedge CLOCK_50) begin
+		if(reset) begin
+			indexEn <= 0; 
+			track <= 0;
+			maxIndexCurrent <= 0; 
+		end else begin
+			if(redCountAudioRequest) begin
+				indexEn <= 1; 
+				track <= redCount; 
+				maxIndexCurrent <= maxIndex[redCount]; 
+			end else if (greenCountAudioRequest) begin
+				indexEn <= 1; 
+				track <= greenCount; 
+				maxIndexCurrent <= maxIndex[greenCount]; 
+			end else if (redAudioRequest) begin
+				indexEn <= 1; 
+				track <= 6; 
+				maxIndexCurrent <= maxIndex[6]; 
+			end else if (greenAudioRequest) begin
+				indexEn <= 1; 
+				track <= 7; 
+				maxIndexCurrent <= maxIndex[7]; 
+			end else if (sampleDone) begin
+				indexEn <= 0; 
+				track <= 8; 
+				maxIndexCurrent <= 0; 
+			end 
+		end 
+	end
+
+
+
+
+
+
+
+
+endmodule 
+
+
+
+
+module audioSelect_testbench();
+
+
+
+
+endmodule 

@@ -1,0 +1,248 @@
+module audioManager (redCount, greenCount, CLOCK_50, CLOCK2_50, reset, FPGA_I2C_SCLK, FPGA_I2C_SDAT, AUD_XCK, 
+		        AUD_DACLRCK, AUD_ADCLRCK, AUD_BCLK, AUD_ADCDAT, AUD_DACDAT, PS2_DAT, PS2_CLK, LEDR);
+
+	input CLOCK_50, CLOCK2_50, reset;
+	input logic PS2_CLK, PS2_DAT;
+	output logic LEDR[9:0]; 
+	// I2C Audio/Video config interface
+	output FPGA_I2C_SCLK;
+	inout FPGA_I2C_SDAT;
+	// Audio CODEC
+	output AUD_XCK;
+	input AUD_DACLRCK, AUD_ADCLRCK, AUD_BCLK;
+	input AUD_ADCDAT;
+	output AUD_DACDAT;
+	
+	// Local wires.
+	wire read_ready, write_ready, read, write;
+	wire [23:0] readdata_left, readdata_right;
+	wire [23:0] writedata_left, writedata_right;
+
+	//red and green counts
+	input logic [3:0] redCount, greenCount;
+	//assign redCount = 3'b011;
+	//assign greenCount = 3'b000; 
+
+	//audio controller signals 
+	logic indexEn;
+	logic [3:0] track;
+	logic redCountAudioRequest, greenCountAudioRequest, redAudioRequest, greenAudioRequest, sampleDoneAck;
+
+	//PS2 signals
+	logic makeBreak; 
+	logic valid; 
+	logic [7:0] outCode; 
+
+	//index counter
+	integer index; 
+	logic sampleDone;
+
+	//Write data to speaker
+	logic [23:0] CODEC_write; 
+	
+	//16 khz counter
+	integer count16khz; 
+	logic sixteenKhz; 
+
+	//max index params
+	logic [14:0] maxIndex [0:7]; 
+	logic [14:0] maxIndexCurrent; 
+
+	assign maxIndex[0] = 15'd5572;
+	assign maxIndex[1] = 15'd4643;
+	assign maxIndex[2] = 15'd5200;
+	assign maxIndex[3] = 15'd19999;
+	assign maxIndex[4] = 15'd21199;
+	assign maxIndex[5] = 15'd27679;
+	assign maxIndex[6] = 15'd5386;
+	assign maxIndex[7] = 15'd6129; 
+
+	//Sound ROM 
+	logic [23:0] zero [0:5572];
+	logic [23:0] one [0:4643];
+	logic [23:0] two [0:5200];
+	logic [23:0] three [0:19999];
+	logic [23:0] four [0:21199];
+	logic [23:0] five [0:27679];
+	logic [23:0] red [0:5386];
+	logic [23:0] green [0:6129];
+
+	initial begin
+		$readmemb(".\\audioClips\\zero.txt", zero); 
+		$readmemb(".\\audioClips\\one.txt", one); 
+		$readmemb(".\\audioClips\\two.txt", two); 
+		$readmemb(".\\audioClips\\three.txt", three); 
+		$readmemb(".\\audioClips\\four.txt", four); 
+		$readmemb(".\\audioClips\\five.txt", five); 
+		$readmemb(".\\audioClips\\red.txt", red); 
+		$readmemb(".\\audioClips\\green.txt", green); 
+		
+	end
+
+
+	keyboard_press_driver keytest(
+		.CLOCK_50(CLOCK_50), 
+		.valid(valid), 
+		.makeBreak(makeBreak),
+		.outCode(outCode),
+		.PS2_DAT(PS2_DAT), 
+		.PS2_CLK(PS2_CLK), 
+		.reset
+	);
+
+	keyboardController keymanager (.clk(CLOCK_50), .reset, .makeBreak, .sampleDone, .outCode, 
+                            .redCountAudioRequest, .greenCountAudioRequest, .redAudioRequest, .greenAudioRequest, .sampleDoneAck); 
+
+	always_ff @(posedge CLOCK_50) begin
+		if(reset) begin
+			count16khz <= 0;
+			sixteenKhz <= 0; 
+		end else begin
+			if(count16khz < 3125) begin
+				count16khz <= count16khz + 1; 
+				sixteenKhz <= 0; 
+			end else  begin
+				count16khz <= 0;
+				sixteenKhz <= 1; 
+			end
+		end
+	end
+	
+	//index counter
+	always_ff @(posedge CLOCK_50) begin
+		if(reset) begin
+			index <= 0; 
+			sampleDone <= 0; 
+		end else if(indexEn) begin
+			if(index < maxIndexCurrent) begin
+				if(sixteenKhz) begin
+					index <= index + 1; 
+				end
+			end else if (index >= maxIndexCurrent) begin
+				sampleDone <= 1; 
+				index <= 0; 
+			end else if (sampleDoneAck) begin
+				sampleDone <= 0; 
+			end
+		end else begin
+			sampleDone <= 0; 
+		end
+	end
+
+	//track selector 
+	always_ff @(posedge CLOCK_50) begin
+		if(reset) begin
+			CODEC_write <= 24'd0; 
+		end else 
+			case(track) 
+				4'b000: CODEC_write <= zero[index];
+				4'b001: CODEC_write <= one[index];
+				4'b010: CODEC_write <= two[index];
+				4'b011: CODEC_write <= three[index];
+				4'b100: CODEC_write <= four[index];
+				4'b101: CODEC_write <= five[index];
+				4'b110: CODEC_write <= red[index];
+				4'b111: CODEC_write <= green[index];
+				default: CODEC_write <= 24'd0; 
+			endcase
+	end
+
+	//audio controller
+	always_ff @(posedge CLOCK_50) begin
+		if(reset) begin
+			indexEn <= 0; 
+			track <= 0;
+			maxIndexCurrent <= 0; 
+		end else begin
+			if(redCountAudioRequest) begin
+				indexEn <= 1; 
+				track <= redCount; 
+				maxIndexCurrent <= maxIndex[redCount]; 
+			end else if (greenCountAudioRequest) begin
+				indexEn <= 1; 
+				track <= greenCount; 
+				maxIndexCurrent <= maxIndex[greenCount]; 
+			end else if (redAudioRequest) begin
+				indexEn <= 1; 
+				track <= 6; 
+				maxIndexCurrent <= maxIndex[6]; 
+			end else if (greenAudioRequest) begin
+				indexEn <= 1; 
+				track <= 7; 
+				maxIndexCurrent <= maxIndex[7]; 
+			end else if (sampleDone) begin
+				indexEn <= 0; 
+				track <= 8; 
+				maxIndexCurrent <= 0; 
+			end 
+		end 
+	end
+	
+	assign LEDR[0] = indexEn;
+	assign LEDR[2] = redAudioRequest; 
+	assign LEDR[1] = redCountAudioRequest; 
+	assign LEDR[3] = sampleDone; 
+	assign LEDR[4] = makeBreak; 
+	
+	assign writedata_left = CODEC_write;
+	assign writedata_right = CODEC_write;
+	assign read = read_ready;
+	assign write = write_ready;
+	
+/////////////////////////////////////////////////////////////////////////////////
+// Audio CODEC interface. 
+//
+// The interface consists of the following wires:
+// read_ready, write_ready - CODEC ready for read/write operation 
+// readdata_left, readdata_right - left and right channel data from the CODEC
+// read - send data from the CODEC (both channels)
+// writedata_left, writedata_right - left and right channel data to the CODEC
+// write - send data to the CODEC (both channels)
+// AUD_* - should connect to top-level entity I/O of the same name.
+//         These signals go directly to the Audio CODEC
+// I2C_* - should connect to top-level entity I/O of the same name.
+//         These signals go directly to the Audio/Video Config module
+/////////////////////////////////////////////////////////////////////////////////
+	clock_generator my_clock_gen(
+		// inputs
+		.CLOCK2_50,
+		.reset,
+
+		// outputs
+		.AUD_XCK
+	);
+
+	audio_and_video_config cfg(
+		// Inputs
+		CLOCK_50,
+		reset,
+
+		// Bidirectionals
+		FPGA_I2C_SDAT,
+		FPGA_I2C_SCLK
+	);
+
+	audio_codec codec(
+		// Inputs
+		CLOCK_50,
+		reset,
+
+		read,	write,
+		writedata_left, writedata_right,
+
+		AUD_ADCDAT,
+
+		// Bidirectionals
+		AUD_BCLK,
+		AUD_ADCLRCK,
+		AUD_DACLRCK,
+
+		// Outputs
+		read_ready, write_ready,
+		readdata_left, readdata_right,
+		AUD_DACDAT
+	);
+
+endmodule
+
+

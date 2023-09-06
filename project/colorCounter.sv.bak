@@ -1,0 +1,48 @@
+module colorCounter(reset, clk, VGA_H_CNT, VGA_V_CNT, redCount, greenCount);
+	input logic reset, clk; 
+	input logic [12:0] VGA_H_CNT, VGA_V_CNT;			
+	input logic	[7:0]	oVGA_R, oVGA_G, oVGA_B;
+	output logic [4:0] redCount, greenCount;
+	
+	parameter rowStart = 0;
+	parameter rowEnd = 100;
+	parameter colStart = 0;
+	parameter colEnd = 100;
+	parameter redRange = 100;
+	parameter greenRange = 100;
+	parameter whiteRange = 100; 
+
+	logic [31:0] redPixels = 0; 
+	logic [31:0] greenPixels = 0; 
+	logic getColor;
+	
+	always_ff @(posedge clk)begin 
+		if (reset) begin 
+			redCount <= 0;
+			greenCount <= 0;		
+		end else if ((VGA_H_CNT > rowStart) && (VGA_H_CNT > rowEnd) && (VGA_V_CNT > colStart) && (VGA_V_CNT > colEnd)) begin  // Check if given pixel is within processed region
+			if (oVGA_R > (255 - redRange) && oVGA_G < (0 + redRange) && oVGA_B < (0 + blueRange)) begin // If within region, check if the pixel looks something roughly red
+				redPixels <= redPixels + 1;
+			end 
+			if (oVGA_R < (0 + greenRange) && oVGA_G > (255 - greenRange) && oVGA_B < (0 + greenRange)) begin  // If within region, check if the pixel looks something roughly green
+				greenPixels <= greenPixels + 1;
+			end	
+			if (oVGA_R < (255 - whiteRange) && oVGA_G < (255 - whiteRange) && oVGA_B < (255 - whiteRange)) begin // If within region, check if the pixel looks something roughly white
+				whitePixels <= whitePixels + 1;
+			end				
+		end else if ((VGA_H_CNT == 640) && (VGA_V_CNT == 480)) begin // At the end of the frame
+			if ((redPixels > ((rowEnd - rowStart) * (colEnd - colStart)) / 2) && getColor) begin // Check if 50% or more of the pixel was red within region
+				redCount <= redCount + 1; 
+				getColor <= 0; 
+			end else if ((greenPixels > ((rowEnd - rowStart) * (colEnd - colStart)) / 2) && getColor) begin // Check if 50% or more of the pixel was green within region
+				greenCount <= greenCount + 1;
+				getColor <= 0; 
+			end else if ((whitePixels > ((rowEnd - rowStart) * (colEnd - colStart)) / 2) && getColor) begin // Check if 50% or more of the pixel was white within region
+				getColor <= 1;
+				redPixels = 0;
+				greenPixels = 0;
+			end
+		end
+	end
+	
+endmodule 	
